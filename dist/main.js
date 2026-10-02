@@ -235,7 +235,6 @@ async function main() {
   await protectVpnServerRoute(address);
   await run('sudo', ['apt-get', 'update']);
   await run('sudo', ['apt-get', 'install', '-y', '--no-install-recommends', 'strongswan', 'xl2tpd', 'ppp']);
-  await checkBinaries(['ipsec', 'xl2tpd', 'pppd'], true);
   await run('sudo', ['systemctl', 'stop', 'strongswan-starter', 'xl2tpd'], { allowFailure: true });
 
   await writeRootFile('/etc/ipsec.conf', IPSEC_CONFIG(address), '644');
