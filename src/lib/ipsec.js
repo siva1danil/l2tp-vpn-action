@@ -1,14 +1,14 @@
 'use strict';
 
 const fs = require('node:fs');
+const path = require('node:path');
 const common = require('./common');
 const runtime = require('./runtime');
 
 function command(rt, args, options = {}) {
   return common.exec('sudo', [
     'env',
-    `IPSEC_CONFDIR=${rt.state.ipsec.configDir}`,
-    `IPSEC_PIDDIR=${rt.state.ipsec.pidDir}`,
+    `STRONGSWAN_CONF=${rt.state.ipsec.settingsPath}`,
     'ipsec',
     ...args,
   ], options);
@@ -17,13 +17,26 @@ function command(rt, args, options = {}) {
 function prepare(rt, { address, psk }) {
   rt.state.ipsec = {
     name: `gha-${rt.state.instanceId}`,
-    configDir: runtime.resolve(rt, 'ipsec'),
-    pidDir: runtime.resolve(rt, 'ipsec', 'run'),
+    configPath: runtime.resolve(rt, 'ipsec', 'ipsec.conf'),
+    secretsPath: runtime.resolve(rt, 'ipsec', 'ipsec.secrets'),
+    settingsPath: runtime.resolve(rt, 'ipsec', 'strongswan.conf'),
+    startAttempted: false,
   };
   runtime.save(rt);
 
-  fs.mkdirSync(rt.state.ipsec.pidDir, { recursive: true, mode: 0o700 });
-  fs.mkdirSync(runtime.resolve(rt, 'ipsec', 'ipsec.d'), { recursive: true, mode: 0o700 });
+  const systemSettings = fs.existsSync('/etc/strongswan.conf') ? 'include /etc/strongswan.conf\n' : '';
+  runtime.write(rt, 'ipsec/strongswan.conf', `${systemSettings}
+starter {
+    config_file = ${rt.state.ipsec.configPath}
+}
+charon {
+    plugins {
+        stroke {
+            secrets_file = ${rt.state.ipsec.secretsPath}
+        }
+    }
+}
+`);
 
   runtime.write(rt, 'ipsec/ipsec.conf', `
 config setup
@@ -51,8 +64,31 @@ conn ${rt.state.ipsec.name}
 }
 
 async function start(rt) {
+  const pidDir = (await command(rt, ['--piddir'])).stdout.trim();
+  if (!pidDir)
+    throw new Error('Could not determine strongSwan PID directory');
+
+  const starterPidPath = path.join(pidDir, 'starter.charon.pid');
+  const charonPidPath = path.join(pidDir, 'charon.pid');
+  const daemons = new Set(['starter', 'charon', 'charon-systemd']);
+  const processRunning = fs.readdirSync('/proc').some(pid => {
+    if (!/^\d+$/.test(pid))
+      return false;
+    try {
+      return daemons.has(fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim());
+    } catch {
+      return false;
+    }
+  });
+  if (fs.existsSync(starterPidPath) || fs.existsSync(charonPidPath) || processRunning)
+    throw new Error('An existing strongSwan instance is running on this runner');
+
+  rt.state.ipsec.starterPidPath = starterPidPath;
+  rt.state.ipsec.startAttempted = true;
+  runtime.save(rt);
+
   process.stdout.write('Starting strongSwan...\n');
-  await command(rt, ['start']);
+  await command(rt, ['start', '--conf', rt.state.ipsec.configPath]);
 }
 
 async function waitStarted(rt, timeout) {
@@ -82,17 +118,36 @@ async function waitEstablished(rt, timeout) {
 }
 
 async function disconnect(rt) {
-  if (rt.state.ipsec)
+  if (rt.state.ipsec?.startAttempted)
     await command(rt, ['down', rt.state.ipsec.name], { allowFailure: true });
 }
 
 async function stop(rt) {
-  if (rt.state.ipsec)
-    await command(rt, ['stop'], { allowFailure: true });
+  if (!rt.state.ipsec?.startAttempted)
+    return;
+
+  const pidPath = rt.state.ipsec.starterPidPath;
+  if (!pidPath || !fs.existsSync(pidPath))
+    return;
+
+  const pid = fs.readFileSync(pidPath, 'utf8').trim();
+  if (!/^\d+$/.test(pid))
+    return;
+
+  let args;
+  try {
+    args = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+  } catch {
+    return;
+  }
+  if (!args.includes('--conf') || !args.includes(rt.state.ipsec.configPath))
+    return;
+
+  await command(rt, ['stop'], { allowFailure: true });
 }
 
 async function diagnostics(rt) {
-  if (!rt.state.ipsec)
+  if (!rt.state.ipsec?.startAttempted)
     return;
   const result = await command(rt, ['statusall'], { allowFailure: true });
   if (result.stdout)
