@@ -34,9 +34,10 @@ async function start(rt) {
 async function waitStarted(rt, timeout) {
   const expiresAt = Date.now() + timeout;
   while (Date.now() < expiresAt) {
-    if (fs.existsSync(rt.state.l2tp.pidPath) && fs.existsSync(rt.state.l2tp.controlPath)) {
-      const pid = fs.readFileSync(rt.state.l2tp.pidPath, 'utf8').trim();
-      if (/^\d+$/.test(pid) && (await common.exec('sudo', ['kill', '-0', pid], { allowFailure: true })).code === 0)
+    if (fs.existsSync(rt.state.l2tp.controlPath)) {
+      const result = await common.exec('sudo', ['cat', rt.state.l2tp.pidPath], { allowFailure: true });
+      const pid = result.stdout.trim();
+      if (result.code === 0 && /^\d+$/.test(pid) && (await common.exec('sudo', ['kill', '-0', pid], { allowFailure: true })).code === 0)
         return;
     }
     await common.sleep(250);
@@ -66,10 +67,11 @@ async function stop(rt) {
     return;
 
   try {
-    if (!fs.existsSync(rt.state.l2tp.pidPath))
+    const result = await common.exec('sudo', ['cat', rt.state.l2tp.pidPath], { allowFailure: true });
+    if (result.code !== 0)
       return;
 
-    const pid = fs.readFileSync(rt.state.l2tp.pidPath, 'utf8').trim();
+    const pid = result.stdout.trim();
     if (!/^\d+$/.test(pid))
       return;
 

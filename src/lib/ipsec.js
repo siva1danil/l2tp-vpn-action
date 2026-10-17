@@ -131,19 +131,22 @@ async function stop(rt) {
     return;
 
   const pidPath = rt.state.ipsec.starterPidPath;
-  if (!pidPath || !fs.existsSync(pidPath))
+  if (!pidPath)
     return;
 
-  const pid = fs.readFileSync(pidPath, 'utf8').trim();
+  const result = await common.exec('sudo', ['cat', pidPath], { allowFailure: true });
+  if (result.code !== 0)
+    return;
+
+  const pid = result.stdout.trim();
   if (!/^\d+$/.test(pid))
     return;
 
-  let args;
-  try {
-    args = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
-  } catch {
+  const commandLine = await common.exec('sudo', ['cat', `/proc/${pid}/cmdline`], { allowFailure: true });
+  if (commandLine.code !== 0)
     return;
-  }
+
+  const args = commandLine.stdout.split('\0');
   if (!args.includes('--conf') || !args.includes(rt.state.ipsec.configPath))
     return;
 
