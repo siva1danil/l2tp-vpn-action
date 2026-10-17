@@ -7,7 +7,7 @@ Access private network resources from GitHub Actions through an L2TP/IPsec VPN.
 ```yaml
 - name: Connect VPN
   id: vpn
-  uses: siva1danil/l2tp-vpn-action@v1
+  uses: siva1danil/l2tp-vpn-action@v2
   with:
     host: ${{ secrets.VPN_HOST }}
     psk: ${{ secrets.VPN_PSK }}
