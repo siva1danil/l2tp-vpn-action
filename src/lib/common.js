@@ -143,6 +143,9 @@ async function checkDependencies() {
     if (!await which(command))
       missing.add(pkg);
 
+  if (!fs.existsSync('/usr/lib/ipsec/charon'))
+    missing.add('strongswan-charon');
+
   return missing;
 }
 

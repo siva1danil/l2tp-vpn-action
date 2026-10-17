@@ -19,7 +19,7 @@ async function main() {
   process.stdout.write('Disconnecting L2TP/IPsec VPN...\n');
   const rt = runtime.open(root);
 
-  await routes.restore(rt).catch(error => common.warning(`Route cleanup failed: ${error.message}`));
+  await routes.uninstall(rt).catch(error => common.warning(`Route cleanup failed: ${error.message}`));
   await l2tp.disconnect(rt).catch(error => common.warning(`L2TP disconnect failed: ${error.message}`));
   await l2tp.stop(rt).catch(error => common.warning(`xl2tpd cleanup failed: ${error.message}`));
   await ipsec.disconnect(rt).catch(error => common.warning(`IPsec disconnect failed: ${error.message}`));
