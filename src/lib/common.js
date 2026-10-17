@@ -9,8 +9,9 @@ const child_process = require('node:child_process');
 
 function run(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
+    const hasInput = options.input !== undefined;
     const child = child_process.spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       env: options.env || process.env,
       cwd: options.cwd,
     });
@@ -18,14 +19,20 @@ function run(command, args = [], options = {}) {
     const timers = [];
     const stdout = [];
     const stderr = [];
+    let inputError;
     child.stdout.on('data', chunk => stdout.push(chunk));
     child.stderr.on('data', chunk => stderr.push(chunk));
-    child.stdin.end(options.input ?? '');
+    if (hasInput) {
+      child.stdin.on('error', error => { inputError = error; });
+      child.stdin.end(options.input ?? '');
+    }
 
     child.on('error', reject);
     child.on('close', code => {
       timers.forEach(clearTimeout);
       const result = { code: code ?? 128, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) };
+      if (inputError && result.code === 0)
+        return reject(inputError);
       if (result.code === 0 || options.allowFailure)
         return resolve(result);
       else
