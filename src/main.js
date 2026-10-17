@@ -94,6 +94,7 @@ async function main() {
     common.output('peer-ip', connection.peerIp);
     process.stdout.write(`VPN is ready on ${connection.interface} (${connection.localIp})\n`);
   } catch (cause) {
+    await ppp.diagnostics(rt).catch(() => { });
     await ipsec.diagnostics(rt).catch(() => { });
     await routes.uninstall(rt).catch(error => common.warning(`Route cleanup failed: ${error.message}`));
     await l2tp.disconnect(rt).catch(error => common.warning(`L2TP disconnect failed: ${error.message}`));

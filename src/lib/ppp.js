@@ -7,10 +7,12 @@ function prepare(rt, { username, password }) {
   rt.state.ppp = {
     interfaceName: `gha-l2tp-${rt.state.instanceId}`,
     optionsPath: runtime.resolve(rt, 'ppp', 'options'),
+    logPath: runtime.resolve(rt, 'ppp', 'pppd.log'),
   };
   runtime.save(rt);
 
   runtime.write(rt, 'ppp/options', `
+logfile "${rt.state.ppp.logPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
 name "${username.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
 password "${password.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
 ifname ${rt.state.ppp.interfaceName}
@@ -23,7 +25,6 @@ refuse-eap
 refuse-pap
 refuse-chap
 refuse-mschap
-noccp
 mtu 1400
 mru 1400
 lock
@@ -54,4 +55,13 @@ async function wait(rt, timeout) {
   throw new Error('PPP interface did not become online before timeout');
 }
 
-module.exports = { prepare, wait };
+async function diagnostics(rt) {
+  if (!rt.state.ppp?.logPath)
+    return;
+
+  const result = await common.exec('sudo', ['tail', '-n', '50', '--', rt.state.ppp.logPath], { allowFailure: true });
+  if (result.code === 0 && result.stdout.trim())
+    process.stderr.write(`\npppd log:\n${result.stdout}\n`);
+}
+
+module.exports = { prepare, wait, diagnostics };
