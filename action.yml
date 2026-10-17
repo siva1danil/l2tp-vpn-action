@@ -1,9 +1,12 @@
 name: L2TP/IPsec VPN
-description: Connect a Linux GitHub Actions runner to an L2TP/IPsec VPN and wait until it is ready
+description: Connect a Linux GitHub Actions runner to an L2TP/IPsec VPN without modifying persistent VPN configuration
 
 inputs:
   host:
     description: L2TP/IPsec server IPv4 address or hostname that resolves to IPv4
+    required: true
+  psk:
+    description: IPsec pre-shared key
     required: true
   username:
     description: PPP username
@@ -11,27 +14,28 @@ inputs:
   password:
     description: PPP password
     required: true
-  psk:
-    description: IPsec pre-shared key
-    required: true
   routes:
-    description: Comma or newline separated CIDRs to route through the VPN (for example, 10.0.0.0/8)
+    description: Comma or newline separated IPv4 CIDRs to route through the VPN
     required: false
     default: ""
   timeout:
-    description: Seconds to wait for the VPN tunnel
+    description: Maximum seconds for the complete VPN connection sequence
     required: false
-    default: "45"
+    default: "60"
 
 outputs:
   interface:
-    description: PPP interface used by the established VPN (for example, ppp0)
+    description: PPP interface used by the established VPN
+  local-ip:
+    description: Local IPv4 address assigned to the PPP interface
+  peer-ip:
+    description: Peer IPv4 address reported by PPP when available
 
 runs:
   using: node24
-  main: dist/main.js
-  post: dist/post.js
-  post-if: always() && runner.os == 'Linux'
+  main: src/main.js
+  post: src/post.js
+  post-if: always()
 
 branding:
   icon: shield

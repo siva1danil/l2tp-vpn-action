@@ -1,48 +1,51 @@
 # L2TP/IPsec VPN Action
 
-Access private services from GitHub Actions through an existing L2TP/IPsec VPN.
-Use it for deployments, integration tests, and maintenance jobs that need access
-to your internal network. The connection is available to subsequent steps and
-closes during job cleanup.
+Access private network resources from GitHub Actions through an L2TP/IPsec VPN.
+
+## Usage
+
+```yaml
+- name: Connect VPN
+  id: vpn
+  uses: siva1danil/l2tp-vpn-action@v1
+  with:
+    host: ${{ secrets.VPN_HOST }}
+    psk: ${{ secrets.VPN_PSK }}
+    username: ${{ secrets.VPN_USERNAME }}
+    password: ${{ secrets.VPN_PASSWORD }}
+    routes: |
+      10.20.0.0/16
+      192.168.50.0/24
+    timeout: 60
+
+- run: ping -c 3 192.168.50.1
+```
+
+## Inputs
+
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `host` | yes | — | VPN server address or hostname |
+| `psk` | yes | — | IPsec pre-shared key |
+| `username` | yes | — | PPP username |
+| `password` | yes | — | PPP password |
+| `routes` | no | empty | VPN CIDRs, separated by commas or newlines |
+| `timeout` | no | `60` | Connection timeout in seconds (1–300) |
+
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `interface` | VPN PPP interface |
+| `local-ip` | Assigned local IPv4 address |
+| `peer-ip` | Peer IPv4 address, when available |
 
 ## Requirements
 
 | Requirement | Value |
 | --- | --- |
-| Runner | Linux runner (Ubuntu recommended) |
-| Services | `systemd` |
-| Package manager | `apt-get` |
+| Runner | Linux; Ubuntu/Debian for automatic package installation via `apt-get` |
 | Privileges | Passwordless `sudo` |
-| VPN | L2TP over IPsec with PSK |
-| Network | IPv4 only, server hostname must resolve to IPv4 |
-
-IPv6 traffic keeps the runner's existing routes. Installed packages and
-overwritten VPN configuration remain after cleanup. The original default routes are restored.
-
-## Parameters
-
-| Parameter | Required | Default | Description |
-| --- | --- | --- | --- |
-| `host` | Yes | — | Server address or hostname |
-| `username` | Yes | — | PPP username |
-| `password` | Yes | — | PPP password |
-| `psk` | Yes | — | IPsec pre-shared key |
-| `routes` | No | — | Comma/newline-separated CIDRs; `0.0.0.0/0` for default routing |
-| `timeout` | No | `45` | Connection timeout in seconds (`5`–`300`) |
-
-## Usage
-
-```yaml
-- uses: siva1danil/l2tp-vpn-action@v1
-  id: vpn
-  with:
-    host: ${{ secrets.VPN_HOST }}
-    username: ${{ secrets.VPN_USERNAME }}
-    password: ${{ secrets.VPN_PASSWORD }}
-    psk: ${{ secrets.VPN_PSK }}
-    routes: 192.168.1.0/24
-
-- run: ping -c 3 192.168.1.1
-```
-
-The PPP interface is available as `${{ steps.vpn.outputs.interface }}`.
+| VPN | L2TP/IPsec with PSK, IPv4 only |
+| Routing | Split routes only; `0.0.0.0/0` is currently not supported |
+| Concurrency | One VPN connection per runner; no existing strongSwan/xl2tpd instance |
