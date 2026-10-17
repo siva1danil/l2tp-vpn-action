@@ -24,9 +24,7 @@ function prepare(rt, { address, psk }) {
   };
   runtime.save(rt);
 
-  const systemSettings = fs.existsSync('/etc/strongswan.conf') ? 'include /etc/strongswan.conf\n' : '';
-  runtime.write(rt, 'ipsec/strongswan.conf', `${systemSettings}
-starter {
+  runtime.write(rt, 'ipsec/strongswan.conf', `starter {
     config_file = ${rt.state.ipsec.configPath}
 }
 charon {
@@ -93,9 +91,12 @@ async function start(rt) {
 
 async function waitStarted(rt, timeout) {
   const expiresAt = Date.now() + timeout;
+  const startupGracePeriod = Date.now() + 2000;
   while (Date.now() < expiresAt) {
-    if ((await command(rt, ['status'], { allowFailure: true })).code === 0)
+    if ((await command(rt, ['stroke', 'status'], { allowFailure: true })).code === 0)
       return;
+    if (Date.now() >= startupGracePeriod && !fs.existsSync(rt.state.ipsec.starterPidPath))
+      throw new Error('strongSwan starter exited before the daemon became ready; check the runner journal');
     await common.sleep(250);
   }
   throw new Error('strongSwan daemon did not become ready before timeout');
