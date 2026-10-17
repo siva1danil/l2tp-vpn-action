@@ -46,6 +46,12 @@ async function waitStarted(rt, timeout) {
 
 async function connect(rt) {
   process.stdout.write('Establishing L2TP...\n');
+  const resultDir = '/var/run/xl2tpd';
+  if (!fs.existsSync(resultDir)) {
+    await common.exec('sudo', ['install', '-d', '-m', '700', resultDir]);
+    rt.state.l2tp.resultDirCreated = true;
+    runtime.save(rt);
+  }
   await common.exec('sudo', ['xl2tpd-control', '-c', rt.state.l2tp.controlPath, 'connect-lac', rt.state.l2tp.lacName]);
 }
 
@@ -56,20 +62,28 @@ async function disconnect(rt) {
 }
 
 async function stop(rt) {
-  if (!rt.state.l2tp || !fs.existsSync(rt.state.l2tp.pidPath))
+  if (!rt.state.l2tp)
     return;
 
-  const pid = fs.readFileSync(rt.state.l2tp.pidPath, 'utf8').trim();
-  if (!/^\d+$/.test(pid))
-    return;
-
-  await common.exec('sudo', ['kill', '-TERM', pid], { allowFailure: true });
-  for (let i = 0; i < 20; i++) {
-    if ((await common.exec('sudo', ['kill', '-0', pid], { allowFailure: true })).code !== 0)
+  try {
+    if (!fs.existsSync(rt.state.l2tp.pidPath))
       return;
-    await common.sleep(100);
+
+    const pid = fs.readFileSync(rt.state.l2tp.pidPath, 'utf8').trim();
+    if (!/^\d+$/.test(pid))
+      return;
+
+    await common.exec('sudo', ['kill', '-TERM', pid], { allowFailure: true });
+    for (let i = 0; i < 20; i++) {
+      if ((await common.exec('sudo', ['kill', '-0', pid], { allowFailure: true })).code !== 0)
+        return;
+      await common.sleep(100);
+    }
+    await common.exec('sudo', ['kill', '-KILL', pid], { allowFailure: true });
+  } finally {
+    if (rt.state.l2tp.resultDirCreated)
+      await common.exec('sudo', ['rmdir', '--', '/var/run/xl2tpd'], { allowFailure: true });
   }
-  await common.exec('sudo', ['kill', '-KILL', pid], { allowFailure: true });
 }
 
 module.exports = { prepare, start, wait: waitStarted, connect, disconnect, stop };

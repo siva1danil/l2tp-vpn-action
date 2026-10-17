@@ -5,21 +5,14 @@ const path = require('node:path');
 const common = require('./common');
 const runtime = require('./runtime');
 
-function command(rt, args, options = {}) {
-  return common.exec('sudo', [
-    'env',
-    `STRONGSWAN_CONF=${rt.state.ipsec.settingsPath}`,
-    'ipsec',
-    ...args,
-  ], options);
-}
-
 function prepare(rt, { address, psk }) {
+  const configDir = path.join('/etc/ipsec.d', path.basename(rt.root));
   rt.state.ipsec = {
     name: `gha-${rt.state.instanceId}`,
-    configPath: runtime.resolve(rt, 'ipsec', 'ipsec.conf'),
-    secretsPath: runtime.resolve(rt, 'ipsec', 'ipsec.secrets'),
-    settingsPath: runtime.resolve(rt, 'ipsec', 'strongswan.conf'),
+    configDir,
+    configPath: path.join(configDir, 'ipsec.conf'),
+    secretsPath: path.join(configDir, 'ipsec.secrets'),
+    settingsPath: path.join(configDir, 'strongswan.conf'),
     startAttempted: false,
   };
   runtime.save(rt);
@@ -62,7 +55,11 @@ conn ${rt.state.ipsec.name}
 }
 
 async function start(rt) {
-  const pidDir = (await command(rt, ['--piddir'])).stdout.trim();
+  await common.run('sudo', ['install', '-d', '-m', '700', rt.state.ipsec.configDir]);
+  for (const file of ['strongswan.conf', 'ipsec.conf', 'ipsec.secrets'])
+    await common.run('sudo', ['install', '-m', '600', runtime.resolve(rt, 'ipsec', file), path.join(rt.state.ipsec.configDir, file)]);
+
+  const pidDir = (await common.exec('sudo', ['ipsec', '--piddir'])).stdout.trim();
   if (!pidDir)
     throw new Error('Could not determine strongSwan PID directory');
 
@@ -86,14 +83,14 @@ async function start(rt) {
   runtime.save(rt);
 
   process.stdout.write('Starting strongSwan...\n');
-  await command(rt, ['start', '--conf', rt.state.ipsec.configPath]);
+  await common.exec('sudo', ['env', `STRONGSWAN_CONF=${rt.state.ipsec.settingsPath}`, 'ipsec', 'start', '--conf', rt.state.ipsec.configPath]);
 }
 
 async function waitStarted(rt, timeout) {
   const expiresAt = Date.now() + timeout;
   const startupGracePeriod = Date.now() + 2000;
   while (Date.now() < expiresAt) {
-    if ((await command(rt, ['stroke', 'status'], { allowFailure: true })).code === 0)
+    if ((await common.exec('sudo', ['ipsec', 'stroke', 'status'], { allowFailure: true })).code === 0)
       return;
     if (Date.now() >= startupGracePeriod && !fs.existsSync(rt.state.ipsec.starterPidPath))
       throw new Error('strongSwan starter exited before the daemon became ready; check the runner journal');
@@ -104,13 +101,19 @@ async function waitStarted(rt, timeout) {
 
 async function establish(rt, timeout) {
   process.stdout.write('Establishing IPsec...\n');
-  await command(rt, ['up', rt.state.ipsec.name], { timeout });
+  try {
+    await common.exec('sudo', ['ipsec', 'up', rt.state.ipsec.name], { timeout });
+  } catch (cause) {
+    if (cause.code === 'ETIMEDOUT')
+      throw new Error('IPsec negotiation did not complete before timeout; check server reachability and UDP 500/4500');
+    throw cause;
+  }
 }
 
 async function waitEstablished(rt, timeout) {
   const expiresAt = Date.now() + timeout;
   while (Date.now() < expiresAt) {
-    const status = await command(rt, ['status', rt.state.ipsec.name], { allowFailure: true });
+    const status = await common.exec('sudo', ['ipsec', 'status', rt.state.ipsec.name], { allowFailure: true });
     if (status.code === 0 && /\bESTABLISHED\b/.test(status.stdout) && /\bINSTALLED\b/.test(status.stdout))
       return;
     await common.sleep(250);
@@ -120,7 +123,7 @@ async function waitEstablished(rt, timeout) {
 
 async function disconnect(rt) {
   if (rt.state.ipsec?.startAttempted)
-    await command(rt, ['down', rt.state.ipsec.name], { allowFailure: true });
+    await common.exec('sudo', ['ipsec', 'down', rt.state.ipsec.name], { allowFailure: true });
 }
 
 async function stop(rt) {
@@ -144,15 +147,20 @@ async function stop(rt) {
   if (!args.includes('--conf') || !args.includes(rt.state.ipsec.configPath))
     return;
 
-  await command(rt, ['stop'], { allowFailure: true });
+  await common.exec('sudo', ['ipsec', 'stop'], { allowFailure: true });
+}
+
+async function cleanup(rt) {
+  if (rt.state.ipsec?.configDir)
+    await common.run('sudo', ['rm', '-rf', '--', rt.state.ipsec.configDir]);
 }
 
 async function diagnostics(rt) {
   if (!rt.state.ipsec?.startAttempted)
     return;
-  const result = await command(rt, ['statusall'], { allowFailure: true });
+  const result = await common.exec('sudo', ['ipsec', 'statusall'], { allowFailure: true });
   if (result.stdout)
     process.stderr.write(`\nstrongSwan status:\n${result.stdout}\n`);
 }
 
-module.exports = { prepare, start, waitStarted, establish, waitEstablished, disconnect, stop, diagnostics };
+module.exports = { prepare, start, waitStarted, establish, waitEstablished, disconnect, stop, cleanup, diagnostics };

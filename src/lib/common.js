@@ -19,7 +19,7 @@ function run(command, args = [], options = {}) {
     const timers = [];
     const stdout = [];
     const stderr = [];
-    let inputError;
+    let inputError = undefined, timedOut = false;
     child.stdout.on('data', chunk => stdout.push(chunk));
     child.stderr.on('data', chunk => stderr.push(chunk));
     if (hasInput) {
@@ -31,6 +31,8 @@ function run(command, args = [], options = {}) {
     child.on('close', code => {
       timers.forEach(clearTimeout);
       const result = { code: code ?? 128, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) };
+      if (timedOut)
+        return reject(new Error(`${command} timed out after ${options.timeout} ms`));
       if (inputError && result.code === 0)
         return reject(inputError);
       if (result.code === 0 || options.allowFailure)
@@ -40,7 +42,7 @@ function run(command, args = [], options = {}) {
     });
 
     if (options.timeout !== undefined)
-      timers.push(setTimeout(() => child.kill('SIGTERM'), options.timeout), setTimeout(() => child.kill('SIGKILL'), options.timeout + 2000));
+      timers.push(setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, options.timeout), setTimeout(() => child.kill('SIGKILL'), options.timeout + 2000));
   });
 }
 

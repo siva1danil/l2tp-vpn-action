@@ -100,7 +100,7 @@ async function main() {
     await l2tp.stop(rt).catch(error => common.warning(`xl2tpd cleanup failed: ${error.message}`));
     await ipsec.disconnect(rt).catch(error => common.warning(`IPsec disconnect failed: ${error.message}`));
     await ipsec.stop(rt).catch(error => common.warning(`strongSwan cleanup failed: ${error.message}`));
-    await runtime.remove(rt);
+    await ipsec.cleanup(rt).then(() => runtime.remove(rt), error => common.warning(`IPsec config cleanup failed: ${error.message}`));
     throw cause;
   }
 }
